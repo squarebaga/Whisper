@@ -94,6 +94,7 @@
     <ClInclude Include="CircleIndicator.h" />
     <ClInclude Include="AppState.h" />
     <ClInclude Include="CaptureDlg.h" />
+    <ClInclude Include="DryRunCheckbox.h" />
     <ClInclude Include="ModelAdvancedDlg.h" />
     <ClInclude Include="Utils\TranslateCheckbox.h" />
     <ClInclude Include="Utils\DebugConsole.h" />
@@ -124,6 +125,7 @@
     <ClCompile Include="useDiscreteGpu.c">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="Utils\DryRunCheckbox.cpp" />
     <ClCompile Include="Utils\TranslateCheckbox.cpp" />
     <ClCompile Include="Utils\DebugConsole.cpp" />
     <ClCompile Include="Utils\logger.cpp" />

@@ -33,6 +33,7 @@ LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam
 	languageSelector.initialize( m_hWnd, IDC_LANGUAGE, appState );
 	cbConsole.initialize( m_hWnd, IDC_CONSOLE, appState );
 	cbTranslate.initialize( m_hWnd, IDC_TRANSLATE, appState );
+	cbDryrun.initialize( m_hWnd, IDC_DRYRUN, appState );
 	populateOutputFormats();
 
 	pendingState.initialize(
@@ -342,22 +343,54 @@ void TranscribeDlg::onTranscribe()
 
 	transcribeArgs.inputPathMediaList = ListMP4Files(folderPath);
 
+#if 1
+	int fileNumber = 1;  // 初始化文件編號
+
+	auto it = transcribeArgs.inputPathMediaList.begin();
+	while (it != transcribeArgs.inputPathMediaList.end()) {
+		CString inputFilePath = *it;
+		CString pathOutput = ChangeFileExtensionToSrt(inputFilePath);  // 假設這是您的函數
+
+		// 檢查文件是否已存在
+		if (PathFileExists(pathOutput)) {
+			OutputDebugString(_T("file existed\n"));
+			// 如果文件已存在，從vector中移除對應的inputFilePath
+			it = transcribeArgs.inputPathMediaList.erase(it);
+		}
+		else {
+
+			// 輸出debug信息
+			CString debugMessage;
+			debugMessage.Format(_T("File #%d\ninput file\n%s\noutput file\n%s\n"), fileNumber, inputFilePath.GetString(), pathOutput.GetString());
+			OutputDebugString(debugMessage);
+
+			// 更新文件編號並移動到下一個元素
+			fileNumber++;
+			++it;
+		}
+	}
+#else
+	int no = 1;
 	for (const auto& inputFilePath : transcribeArgs.inputPathMediaList)
-	{
-		OutputDebugString(_T("input file\n"));
-		OutputDebugString(inputFilePath.GetString());
-		OutputDebugString(_T("\n"));
-
-		OutputDebugString(_T("output file\n"));
+	{ 
 		CString pathOutput = ChangeFileExtensionToSrt(inputFilePath);
-		OutputDebugString(pathOutput.GetString());
-		OutputDebugString(_T("\n"));
 
-		transcribeArgs.pathMedia = inputFilePath;
-		transcribeArgs.pathOutput = pathOutput;
+		CString debugMessage;
 
-		transcribeArgs.language = languageSelector.selectedLanguage();
-		transcribeArgs.translate = cbTranslate.checked();
+		debugMessage.Format(_T("%d\n Input file: %s\nOutput file: %s\n\n"), no++, inputFilePath.GetString(), pathOutput.GetString());
+
+		OutputDebugString(debugMessage); 
+	}
+#endif
+	
+	transcribeArgs.language = languageSelector.selectedLanguage();
+	transcribeArgs.translate = cbTranslate.checked();
+	transcribeArgs.dryrun = cbDryrun.checked();
+
+	if (transcribeArgs.dryrun)
+	{
+		OutputDebugString(_T("dryrun and exit\n"));
+		return;
 	}
 
 	if( isInvalidTranslate( m_hWnd, transcribeArgs.language, transcribeArgs.translate ) )
@@ -376,6 +409,7 @@ void TranscribeDlg::onTranscribe()
 	appState.boolStore(regValUseInputFolder, isChecked(useInputFolder));
 	languageSelector.saveSelection(appState);
 	cbTranslate.saveSelection(appState);
+	cbDryrun.saveSelection(appState);
 	appState.stringStore(regValInput, transcribeArgs.pathMedia);
 
 	setPending(true);
@@ -470,16 +504,19 @@ HRESULT TranscribeDlg::transcribe()
 	
 	for (const auto& inputFilePath : transcribeArgs.inputPathMediaList)
 	{
+		CString pathOutput = ChangeFileExtensionToSrt(inputFilePath);
+
+		/*
 		OutputDebugString(_T(__FUNCTION__));
 		OutputDebugString(_T("input file\n"));
 		OutputDebugString(inputFilePath.GetString());
 		OutputDebugString(_T("\n"));
 
 		OutputDebugString(_T("output file\n"));
-		CString pathOutput = ChangeFileExtensionToSrt(inputFilePath);
 		OutputDebugString(pathOutput.GetString());
 		OutputDebugString(_T("\n"));
-
+		 */
+		
 		using namespace Whisper;
 		CComPtr<iAudioReader> reader;
 

@@ -5,6 +5,7 @@
 #include "Utils/miscUtils.h"
 #include "Utils/LanguageDropdown.h"
 #include "Utils/TranslateCheckbox.h"
+#include "Utils/DryrunCheckbox.h"
 #include "Utils/PendingState.h"
 
 class TranscribeDlg :
@@ -74,6 +75,7 @@ private:
 
 	LanguageDropdown languageSelector;
 	TranslateCheckbox cbTranslate;
+	DryRunCheckbox cbDryrun;
 
 	CListViewCtrl sourceMediaListView;
 	CEdit sourceMediaPath;
@@ -110,6 +112,7 @@ private:
 		CString pathOutput;
 		uint32_t language;
 		bool translate;
+		bool dryrun;
 		eOutputFormat format;
 		Whisper::eResultFlags resultFlags;
 		volatile eVisualState visualState = (eVisualState)0;

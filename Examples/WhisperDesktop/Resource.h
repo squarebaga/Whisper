@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
-// Microsoft Visual C++ generated include file.
-// Used by WhisperDesktop.rc
+// Microsoft Visual C++ 產生的 Include 檔案。
+// 由 WhisperDesktop.rc 使用
 //
 #define IDC_MYICON                      2
 #define IDC_LISTVIEW_SOURCE_MEDIA       101
@@ -54,6 +54,7 @@
 #define IDC_USE_INPUT_FOLDER            1029
 #define IDC_RESHAPED_MAT_MUL2           1030
 #define IDC_GPU                         1030
+#define IDC_DRYRUN					1031
 #define IDC_STATIC                      -1
 
 // Next default values for new objects
@@ -63,7 +64,7 @@
 #define _APS_NO_MFC                     1
 #define _APS_NEXT_RESOURCE_VALUE        131
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1030
+#define _APS_NEXT_CONTROL_VALUE         1032
 #define _APS_NEXT_SYMED_VALUE           110
 #endif
 #endif

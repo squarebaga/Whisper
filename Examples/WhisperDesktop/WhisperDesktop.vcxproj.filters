@@ -87,6 +87,9 @@
     <ClInclude Include="ModelAdvancedDlg.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="DryRunCheckbox.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="WhisperDesktop.cpp">
@@ -132,6 +135,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="useDiscreteGpu.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Utils\DryRunCheckbox.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
