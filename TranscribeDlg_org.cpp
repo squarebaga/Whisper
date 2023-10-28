@@ -1,7 +1,6 @@
 #include "stdafx.h"
 #include "TranscribeDlg.h"
 #include "Utils/logger.h"
-#include <Windows.h>
 
 HRESULT TranscribeDlg::show()
 {
@@ -252,63 +251,6 @@ void TranscribeDlg::transcribeError( LPCTSTR text, HRESULT hr )
 	reportError( m_hWnd, text, L"Unable to transcribe audio", hr );
 }
 
-CString GetFolderPath(const CString& filePath)
-{
-	int lastSlash = filePath.ReverseFind('\\');
-	if (lastSlash == -1)
-		return _T(""); // No slashes found in path
-
-	return filePath.Left(lastSlash);
-}
-
-#include <Windows.h>
-#include <vector>
-#include <tchar.h>
-
-std::vector<CString> ListMP4Files(const CString& folderPath)
-{
-	std::vector<CString> mp4Files;
-	WIN32_FIND_DATA findFileData;
-	HANDLE hFind = FindFirstFile((folderPath + _T("\\*.mp4")).GetString(), &findFileData);
-
-	if (hFind == INVALID_HANDLE_VALUE)
-	{
-		return mp4Files; // 返回空列表
-	}
-	else
-	{
-		do
-		{
-			const CString filePath = folderPath + _T("\\") + findFileData.cFileName;
-			mp4Files.push_back(filePath);
-		} while (FindNextFile(hFind, &findFileData) != 0);
-		FindClose(hFind);
-	}
-
-	return mp4Files;
-}
-
-CString ChangeFileExtensionToSrt(const CString& filePath)
-{
-	int dotIndex = filePath.ReverseFind('.');
-	if (dotIndex != -1)  // 如果找到了點（.）符號
-	{
-		CString newPath = filePath.Left(dotIndex);  // 獲取不包含副檔名的路徑部分
-		newPath += _T(".srt");  // 在後面加上新的副檔名
-		return newPath;
-	}
-	else  // 如果沒有找到點（.）符號
-	{
-		return filePath + _T(".srt");  // 直接在原來的路徑後面加上新的副檔名
-	}
-}
-
-VOID CALLBACK MyTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)
-{
-	OutputDebugString(_T("TimerProc\n"));
-	KillTimer(hwnd, idEvent);
-}
-
 void TranscribeDlg::onTranscribe()
 {
 	switch( transcribeArgs.visualState )
@@ -335,55 +277,41 @@ void TranscribeDlg::onTranscribe()
 		return;
 	}
 
-	CString message = L"Selected File Path: " + transcribeArgs.pathMedia + _T("\n");
-	OutputDebugString(message.GetString());
-
-	CString folderPath = GetFolderPath(transcribeArgs.pathMedia);
-
-	transcribeArgs.inputPathMediaList = ListMP4Files(folderPath);
-
-	for (const auto& inputFilePath : transcribeArgs.inputPathMediaList)
-	{
-		OutputDebugString(_T("input file\n"));
-		OutputDebugString(inputFilePath.GetString());
-		OutputDebugString(_T("\n"));
-
-		OutputDebugString(_T("output file\n"));
-		CString pathOutput = ChangeFileExtensionToSrt(inputFilePath);
-		OutputDebugString(pathOutput.GetString());
-		OutputDebugString(_T("\n"));
-
-		transcribeArgs.pathMedia = inputFilePath;
-		transcribeArgs.pathOutput = pathOutput;
-
-		transcribeArgs.language = languageSelector.selectedLanguage();
-		transcribeArgs.translate = cbTranslate.checked();
-	}
-
+	transcribeArgs.language = languageSelector.selectedLanguage();
+	transcribeArgs.translate = cbTranslate.checked();
 	if( isInvalidTranslate( m_hWnd, transcribeArgs.language, transcribeArgs.translate ) )
 		return;
 
 	transcribeArgs.format = (eOutputFormat)(uint8_t)transcribeOutFormat.GetCurSel();
-
-	if (transcribeArgs.format != eOutputFormat::None)
+	if( transcribeArgs.format != eOutputFormat::None )
 	{
-		appState.stringStore( regValOutPath,  transcribeArgs.pathOutput);
+		transcribeOutputPath.GetWindowText( transcribeArgs.pathOutput );
+		if( transcribeArgs.pathOutput.GetLength() <= 0 )
+		{
+			transcribeError( L"Please select an output text file" );
+			return;
+		}
+		if( PathFileExists( transcribeArgs.pathOutput ) )
+		{
+			const int resp = MessageBox( L"The output file is already there.\nOverwrite the file?", L"Confirm Overwrite", MB_ICONQUESTION | MB_YESNO );
+			if( resp != IDYES )
+				return;
+		}
+		appState.stringStore( regValOutPath, transcribeArgs.pathOutput );
 	}
 	else
 		cbConsole.ensureChecked();
 
-	appState.dwordStore(regValOutFormat, (uint32_t)(int)transcribeArgs.format);
-	appState.boolStore(regValUseInputFolder, isChecked(useInputFolder));
-	languageSelector.saveSelection(appState);
-	cbTranslate.saveSelection(appState);
-	appState.stringStore(regValInput, transcribeArgs.pathMedia);
+	appState.dwordStore( regValOutFormat, (uint32_t)(int)transcribeArgs.format );
+	appState.boolStore( regValUseInputFolder, isChecked( useInputFolder ) );
+	languageSelector.saveSelection( appState );
+	cbTranslate.saveSelection( appState );
+	appState.stringStore( regValInput, transcribeArgs.pathMedia );
 
-	setPending(true);
+	setPending( true );
 	transcribeArgs.visualState = eVisualState::Running;
-	transcribeButton.SetWindowText(L"Stop");
-	work.post(); 
-
-	return;
+	transcribeButton.SetWindowText( L"Stop" );
+	work.post();
 }
 
 void __stdcall TranscribeDlg::poolCallback() noexcept
@@ -467,88 +395,69 @@ HRESULT TranscribeDlg::transcribe()
 	transcribeArgs.startTime = GetTickCount64();
 	clearLastError();
 	transcribeArgs.errorMessage = L"";
-	
-	for (const auto& inputFilePath : transcribeArgs.inputPathMediaList)
+
+	using namespace Whisper;
+	CComPtr<iAudioReader> reader;
+
+	CHECK_EX( appState.mediaFoundation->openAudioFile( transcribeArgs.pathMedia, false, &reader ) );
+
+	const eOutputFormat format = transcribeArgs.format;
+	CAtlFile outputFile;
+	if( format != eOutputFormat::None )
+		CHECK( outputFile.Create( transcribeArgs.pathOutput, GENERIC_WRITE, 0, CREATE_ALWAYS ) );
+
+	transcribeArgs.resultFlags = eResultFlags::Timestamps | eResultFlags::Tokens;
+
+	CComPtr<iContext> context;
+	CHECK_EX( appState.model->createContext( &context ) );
+
+	sFullParams fullParams;
+	CHECK_EX( context->fullDefaultParams( eSamplingStrategy::Greedy, &fullParams ) );
+	fullParams.language = transcribeArgs.language;
+	fullParams.setFlag( eFullParamsFlags::Translate, transcribeArgs.translate );
+	fullParams.resetFlag( eFullParamsFlags::PrintRealtime );
+
+	// Setup the callbacks
+	fullParams.new_segment_callback = &newSegmentCallbackStatic;
+	fullParams.new_segment_callback_user_data = this;
+	fullParams.encoder_begin_callback = &encoderBeginCallback;
+	fullParams.encoder_begin_callback_user_data = this;
+
+	// Setup the progress indication sink
+	sProgressSink progressSink{ &progressCallbackStatic, this };
+	// Run the transcribe
+	CHECK_EX( context->runStreamed( fullParams, progressSink, reader ) );
+
+	// Once finished, query duration of the audio.
+	// The duration before the processing is sometimes different, by 20 seconds for the file in that issue:
+	// https://github.com/Const-me/Whisper/issues/4
+	CHECK_EX( reader->getDuration( transcribeArgs.mediaDuration ) );
+
+	context->timingsPrint();
+
+	if( format == eOutputFormat::None )
+		return S_OK;
+
+	CComPtr<iTranscribeResult> result;
+	CHECK_EX( context->getResults( transcribeArgs.resultFlags, &result ) );
+
+	sTranscribeLength len;
+	CHECK_EX( result->getSize( len ) );
+	const sSegment* const segments = result->getSegments();
+
+	switch( format )
 	{
-		OutputDebugString(_T(__FUNCTION__));
-		OutputDebugString(_T("input file\n"));
-		OutputDebugString(inputFilePath.GetString());
-		OutputDebugString(_T("\n"));
-
-		OutputDebugString(_T("output file\n"));
-		CString pathOutput = ChangeFileExtensionToSrt(inputFilePath);
-		OutputDebugString(pathOutput.GetString());
-		OutputDebugString(_T("\n"));
-
-		using namespace Whisper;
-		CComPtr<iAudioReader> reader;
-
-		CHECK_EX( appState.mediaFoundation->openAudioFile( inputFilePath, false, &reader ) );
-
-		const eOutputFormat format = transcribeArgs.format;
-		CAtlFile outputFile;
-		if( format != eOutputFormat::None )
-			CHECK( outputFile.Create( pathOutput, GENERIC_WRITE, 0, CREATE_ALWAYS ) );
-
-		transcribeArgs.resultFlags = eResultFlags::Timestamps | eResultFlags::Tokens;
-
-		CComPtr<iContext> context;
-		CHECK_EX( appState.model->createContext( &context ) );
-
-		sFullParams fullParams;
-		CHECK_EX( context->fullDefaultParams( eSamplingStrategy::Greedy, &fullParams ) );
-		fullParams.language = transcribeArgs.language;
-		fullParams.setFlag( eFullParamsFlags::Translate, transcribeArgs.translate );
-		fullParams.resetFlag( eFullParamsFlags::PrintRealtime );
-
-		// Setup the callbacks
-		fullParams.new_segment_callback = &newSegmentCallbackStatic;
-		fullParams.new_segment_callback_user_data = this;
-		fullParams.encoder_begin_callback = &encoderBeginCallback;
-		fullParams.encoder_begin_callback_user_data = this;
-
-		// Setup the progress indication sink
-		sProgressSink progressSink{ &progressCallbackStatic, this };
-		// Run the transcribe
-		CHECK_EX( context->runStreamed( fullParams, progressSink, reader ) );
-
-		// Once finished, query duration of the audio.
-		// The duration before the processing is sometimes different, by 20 seconds for the file in that issue:
-		// https://github.com/Const-me/Whisper/issues/4
-		CHECK_EX( reader->getDuration( transcribeArgs.mediaDuration ) );
-
-		context->timingsPrint();
-
-		if( format == eOutputFormat::None )
-			return S_OK;
-
-		CComPtr<iTranscribeResult> result;
-		CHECK_EX( context->getResults( transcribeArgs.resultFlags, &result ) );
-
-		sTranscribeLength len;
-		CHECK_EX( result->getSize( len ) );
-		const sSegment* const segments = result->getSegments();
-
-		switch( format )
-		{
-		case eOutputFormat::Text:
-			writeTextFile( segments, len.countSegments, outputFile, false );
-			break;
-		case eOutputFormat::TextTimestamps:
-			writeTextFile( segments, len.countSegments, outputFile, true );
-			break;
-		case eOutputFormat::SubRip:
-			writeSubRip( segments, len.countSegments, outputFile );
-			break;
-		case eOutputFormat::WebVTT:
-			writeWebVTT( segments, len.countSegments, outputFile );
-			break;
-		default:
-			return E_FAIL;
-		}
+	case eOutputFormat::Text:
+		return writeTextFile( segments, len.countSegments, outputFile, false );
+	case eOutputFormat::TextTimestamps:
+		return writeTextFile( segments, len.countSegments, outputFile, true );
+	case eOutputFormat::SubRip:
+		return writeSubRip( segments, len.countSegments, outputFile );
+	case eOutputFormat::WebVTT:
+		return writeWebVTT( segments, len.countSegments, outputFile );
+	default:
+		return E_FAIL;
 	}
-
-	return S_OK;
 }
 
 #undef CHECK_EX

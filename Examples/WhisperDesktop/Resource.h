@@ -3,6 +3,7 @@
 // Used by WhisperDesktop.rc
 //
 #define IDC_MYICON                      2
+#define IDC_LISTVIEW_SOURCE_MEDIA       101
 #define IDD_WHISPERDESKTOP_DIALOG       102
 #define IDM_ABOUT                       104
 #define IDI_WHISPERDESKTOP              107

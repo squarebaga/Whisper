@@ -1,7 +1,6 @@
 #include "stdafx.h"
 #include "TranscribeDlg.h"
 #include "Utils/logger.h"
-#include <Windows.h>
 
 HRESULT TranscribeDlg::show()
 {
@@ -303,12 +302,6 @@ CString ChangeFileExtensionToSrt(const CString& filePath)
 	}
 }
 
-VOID CALLBACK MyTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)
-{
-	OutputDebugString(_T("TimerProc\n"));
-	KillTimer(hwnd, idEvent);
-}
-
 void TranscribeDlg::onTranscribe()
 {
 	switch( transcribeArgs.visualState )
@@ -340,50 +333,64 @@ void TranscribeDlg::onTranscribe()
 
 	CString folderPath = GetFolderPath(transcribeArgs.pathMedia);
 
-	transcribeArgs.inputPathMediaList = ListMP4Files(folderPath);
+	//OutputDebugString(folderPath.GetString());
+	//OutputDebugString(_T("\n"));
 
-	for (const auto& inputFilePath : transcribeArgs.inputPathMediaList)
+	std::vector<CString> mp4Files = ListMP4Files(folderPath);
+
+	//OutputDebugString(_T("start \n"));
+
+	for (const auto& inputFilePath : mp4Files)
 	{
-		OutputDebugString(_T("input file\n"));
 		OutputDebugString(inputFilePath.GetString());
 		OutputDebugString(_T("\n"));
 
-		OutputDebugString(_T("output file\n"));
 		CString pathOutput = ChangeFileExtensionToSrt(inputFilePath);
 		OutputDebugString(pathOutput.GetString());
 		OutputDebugString(_T("\n"));
 
-		transcribeArgs.pathMedia = inputFilePath;
-		transcribeArgs.pathOutput = pathOutput;
-
 		transcribeArgs.language = languageSelector.selectedLanguage();
 		transcribeArgs.translate = cbTranslate.checked();
+
+		if( isInvalidTranslate( m_hWnd, transcribeArgs.language, transcribeArgs.translate ) )
+			return;
+
+		transcribeArgs.format = (eOutputFormat)(uint8_t)transcribeOutFormat.GetCurSel();
+		if(transcribeArgs.format != eOutputFormat::None)
+		{
+			OutputDebugString(pathOutput.GetString());
+			OutputDebugString(_T("\n"));
+			appState.stringStore( regValOutPath, pathOutput);
+		}
+		else
+			cbConsole.ensureChecked();
+
+		appState.dwordStore(regValOutFormat, (uint32_t)(int)transcribeArgs.format);
+		appState.boolStore(regValUseInputFolder, isChecked(useInputFolder));
+		languageSelector.saveSelection(appState);
+		cbTranslate.saveSelection(appState);
+		appState.stringStore(regValInput, inputFilePath);
+
+		setPending(true);
+		transcribeArgs.visualState = eVisualState::Running;
+		transcribeButton.SetWindowText(L"Stop");
+		work.post();
 	}
-
-	if( isInvalidTranslate( m_hWnd, transcribeArgs.language, transcribeArgs.translate ) )
-		return;
-
-	transcribeArgs.format = (eOutputFormat)(uint8_t)transcribeOutFormat.GetCurSel();
-
-	if (transcribeArgs.format != eOutputFormat::None)
-	{
-		appState.stringStore( regValOutPath,  transcribeArgs.pathOutput);
-	}
-	else
-		cbConsole.ensureChecked();
-
-	appState.dwordStore(regValOutFormat, (uint32_t)(int)transcribeArgs.format);
-	appState.boolStore(regValUseInputFolder, isChecked(useInputFolder));
-	languageSelector.saveSelection(appState);
-	cbTranslate.saveSelection(appState);
-	appState.stringStore(regValInput, transcribeArgs.pathMedia);
-
-	setPending(true);
-	transcribeArgs.visualState = eVisualState::Running;
-	transcribeButton.SetWindowText(L"Stop");
-	work.post(); 
 
 	return;
+
+	/*
+	appState.dwordStore( regValOutFormat, (uint32_t)(int)transcribeArgs.format );
+	appState.boolStore( regValUseInputFolder, isChecked( useInputFolder ) );
+	languageSelector.saveSelection( appState );
+	cbTranslate.saveSelection( appState );
+	appState.stringStore( regValInput, transcribeArgs.pathMedia );
+
+	setPending( true );
+	transcribeArgs.visualState = eVisualState::Running;
+	transcribeButton.SetWindowText( L"Stop" );
+	work.post();
+	*/
 }
 
 void __stdcall TranscribeDlg::poolCallback() noexcept
@@ -467,88 +474,69 @@ HRESULT TranscribeDlg::transcribe()
 	transcribeArgs.startTime = GetTickCount64();
 	clearLastError();
 	transcribeArgs.errorMessage = L"";
-	
-	for (const auto& inputFilePath : transcribeArgs.inputPathMediaList)
+
+	using namespace Whisper;
+	CComPtr<iAudioReader> reader;
+
+	CHECK_EX( appState.mediaFoundation->openAudioFile( transcribeArgs.pathMedia, false, &reader ) );
+
+	const eOutputFormat format = transcribeArgs.format;
+	CAtlFile outputFile;
+	if( format != eOutputFormat::None )
+		CHECK( outputFile.Create( transcribeArgs.pathOutput, GENERIC_WRITE, 0, CREATE_ALWAYS ) );
+
+	transcribeArgs.resultFlags = eResultFlags::Timestamps | eResultFlags::Tokens;
+
+	CComPtr<iContext> context;
+	CHECK_EX( appState.model->createContext( &context ) );
+
+	sFullParams fullParams;
+	CHECK_EX( context->fullDefaultParams( eSamplingStrategy::Greedy, &fullParams ) );
+	fullParams.language = transcribeArgs.language;
+	fullParams.setFlag( eFullParamsFlags::Translate, transcribeArgs.translate );
+	fullParams.resetFlag( eFullParamsFlags::PrintRealtime );
+
+	// Setup the callbacks
+	fullParams.new_segment_callback = &newSegmentCallbackStatic;
+	fullParams.new_segment_callback_user_data = this;
+	fullParams.encoder_begin_callback = &encoderBeginCallback;
+	fullParams.encoder_begin_callback_user_data = this;
+
+	// Setup the progress indication sink
+	sProgressSink progressSink{ &progressCallbackStatic, this };
+	// Run the transcribe
+	CHECK_EX( context->runStreamed( fullParams, progressSink, reader ) );
+
+	// Once finished, query duration of the audio.
+	// The duration before the processing is sometimes different, by 20 seconds for the file in that issue:
+	// https://github.com/Const-me/Whisper/issues/4
+	CHECK_EX( reader->getDuration( transcribeArgs.mediaDuration ) );
+
+	context->timingsPrint();
+
+	if( format == eOutputFormat::None )
+		return S_OK;
+
+	CComPtr<iTranscribeResult> result;
+	CHECK_EX( context->getResults( transcribeArgs.resultFlags, &result ) );
+
+	sTranscribeLength len;
+	CHECK_EX( result->getSize( len ) );
+	const sSegment* const segments = result->getSegments();
+
+	switch( format )
 	{
-		OutputDebugString(_T(__FUNCTION__));
-		OutputDebugString(_T("input file\n"));
-		OutputDebugString(inputFilePath.GetString());
-		OutputDebugString(_T("\n"));
-
-		OutputDebugString(_T("output file\n"));
-		CString pathOutput = ChangeFileExtensionToSrt(inputFilePath);
-		OutputDebugString(pathOutput.GetString());
-		OutputDebugString(_T("\n"));
-
-		using namespace Whisper;
-		CComPtr<iAudioReader> reader;
-
-		CHECK_EX( appState.mediaFoundation->openAudioFile( inputFilePath, false, &reader ) );
-
-		const eOutputFormat format = transcribeArgs.format;
-		CAtlFile outputFile;
-		if( format != eOutputFormat::None )
-			CHECK( outputFile.Create( pathOutput, GENERIC_WRITE, 0, CREATE_ALWAYS ) );
-
-		transcribeArgs.resultFlags = eResultFlags::Timestamps | eResultFlags::Tokens;
-
-		CComPtr<iContext> context;
-		CHECK_EX( appState.model->createContext( &context ) );
-
-		sFullParams fullParams;
-		CHECK_EX( context->fullDefaultParams( eSamplingStrategy::Greedy, &fullParams ) );
-		fullParams.language = transcribeArgs.language;
-		fullParams.setFlag( eFullParamsFlags::Translate, transcribeArgs.translate );
-		fullParams.resetFlag( eFullParamsFlags::PrintRealtime );
-
-		// Setup the callbacks
-		fullParams.new_segment_callback = &newSegmentCallbackStatic;
-		fullParams.new_segment_callback_user_data = this;
-		fullParams.encoder_begin_callback = &encoderBeginCallback;
-		fullParams.encoder_begin_callback_user_data = this;
-
-		// Setup the progress indication sink
-		sProgressSink progressSink{ &progressCallbackStatic, this };
-		// Run the transcribe
-		CHECK_EX( context->runStreamed( fullParams, progressSink, reader ) );
-
-		// Once finished, query duration of the audio.
-		// The duration before the processing is sometimes different, by 20 seconds for the file in that issue:
-		// https://github.com/Const-me/Whisper/issues/4
-		CHECK_EX( reader->getDuration( transcribeArgs.mediaDuration ) );
-
-		context->timingsPrint();
-
-		if( format == eOutputFormat::None )
-			return S_OK;
-
-		CComPtr<iTranscribeResult> result;
-		CHECK_EX( context->getResults( transcribeArgs.resultFlags, &result ) );
-
-		sTranscribeLength len;
-		CHECK_EX( result->getSize( len ) );
-		const sSegment* const segments = result->getSegments();
-
-		switch( format )
-		{
-		case eOutputFormat::Text:
-			writeTextFile( segments, len.countSegments, outputFile, false );
-			break;
-		case eOutputFormat::TextTimestamps:
-			writeTextFile( segments, len.countSegments, outputFile, true );
-			break;
-		case eOutputFormat::SubRip:
-			writeSubRip( segments, len.countSegments, outputFile );
-			break;
-		case eOutputFormat::WebVTT:
-			writeWebVTT( segments, len.countSegments, outputFile );
-			break;
-		default:
-			return E_FAIL;
-		}
+	case eOutputFormat::Text:
+		return writeTextFile( segments, len.countSegments, outputFile, false );
+	case eOutputFormat::TextTimestamps:
+		return writeTextFile( segments, len.countSegments, outputFile, true );
+	case eOutputFormat::SubRip:
+		return writeSubRip( segments, len.countSegments, outputFile );
+	case eOutputFormat::WebVTT:
+		return writeWebVTT( segments, len.countSegments, outputFile );
+	default:
+		return E_FAIL;
 	}
-
-	return S_OK;
 }
 
 #undef CHECK_EX

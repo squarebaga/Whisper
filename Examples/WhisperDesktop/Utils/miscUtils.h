@@ -37,6 +37,7 @@ void makeUtf16( CString& rdi, const char* utf8 );
 void makeUtf8( CStringA& rdi, const CString& utf16 );
 
 bool getOpenFileName( HWND owner, LPCTSTR title, LPCTSTR filter, CString& path );
+bool getOpenFolderName(HWND owner, LPCTSTR title, CString& path);
 
 bool getSaveFileName( HWND owner, LPCTSTR title, LPCTSTR filter, CString& path, DWORD* filterIndex = nullptr );
 

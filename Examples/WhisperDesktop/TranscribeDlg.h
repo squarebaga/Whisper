@@ -49,6 +49,7 @@ public:
 		DDX_CONTROL_HANDLE( IDC_TRANSCRIBE, transcribeButton );
 		DDX_CONTROL_HANDLE( IDC_TRANSCRIBE_PROGRESS, progressBar );
 	END_DDX_MAP()
+ 
 
 private:
 	PendingState pendingState;
@@ -56,6 +57,7 @@ private:
 	void transcribeError( LPCTSTR text, HRESULT hr = S_FALSE );
 
 	LRESULT OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam, BOOL& bHandled );
+	VOID CALLBACK MyTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
 
 	void onClose()
 	{
@@ -73,6 +75,7 @@ private:
 	LanguageDropdown languageSelector;
 	TranslateCheckbox cbTranslate;
 
+	CListViewCtrl sourceMediaListView;
 	CEdit sourceMediaPath;
 	CButton useInputFolder;
 	CEdit transcribeOutputPath;
@@ -89,6 +92,7 @@ private:
 	void onBrowseOutput();
 	// Despite the name, the method also handles the "Stop" button
 	void onTranscribe();
+	VOID CALLBACK transcribeTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
 	void onCapture()
 	{
 		EndDialog( IDC_CAPTURE );
@@ -102,6 +106,7 @@ private:
 	struct TranscribeArgs
 	{
 		CString pathMedia;
+		std::vector<CString> inputPathMediaList;
 		CString pathOutput;
 		uint32_t language;
 		bool translate;

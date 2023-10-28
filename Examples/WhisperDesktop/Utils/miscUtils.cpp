@@ -1,5 +1,6 @@
 ﻿#include "stdafx.h"
 #include "miscUtils.h"
+#include <Shlobj.h>  // 需要包含這個頭文件
 
 namespace
 {
@@ -185,6 +186,46 @@ bool getOpenFileName( HWND owner, LPCTSTR title, LPCTSTR filter, CString& path )
 		path = ofn.lpstrFile;
 		return true;
 	}
+}
+
+bool getOpenFolderName(HWND owner, LPCTSTR title, CString& path)
+{
+	CoInitialize(NULL);
+
+	IFileDialog* pfd;
+	HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pfd));
+
+	if (SUCCEEDED(hr))
+	{
+		DWORD dwOptions;
+		hr = pfd->GetOptions(&dwOptions);
+		if (SUCCEEDED(hr))
+		{
+			hr = pfd->SetOptions(dwOptions | FOS_PICKFOLDERS);
+		}
+		hr = pfd->Show(owner);
+		if (SUCCEEDED(hr))
+		{
+			IShellItem* psi;
+			hr = pfd->GetResult(&psi);
+			if (SUCCEEDED(hr))
+			{
+				PWSTR pszPath;
+				hr = psi->GetDisplayName(SIGDN_FILESYSPATH, &pszPath);
+				if (SUCCEEDED(hr))
+				{
+					path = pszPath;
+					CoTaskMemFree(pszPath);
+				}
+				psi->Release();
+			}
+		}
+		pfd->Release();
+	}
+
+	CoUninitialize();
+
+	return SUCCEEDED(hr);
 }
 
 bool getSaveFileName( HWND owner, LPCTSTR title, LPCTSTR filter, CString& path, DWORD* filterIndex )
