@@ -308,6 +308,88 @@ VOID CALLBACK MyTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)
 {
 	OutputDebugString(_T("TimerProc\n"));
 	KillTimer(hwnd, idEvent);
+} 
+
+struct ThreadParams {
+	CString msg;
+};
+
+#include <windows.h>
+#include <winhttp.h> 
+#pragma comment(lib, "winhttp.lib")
+
+void SendWebhookNotification(CString message) {
+	HINTERNET hSession = WinHttpOpen(L"Webhook Sender/1.0",
+		WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+		WINHTTP_NO_PROXY_NAME,
+		WINHTTP_NO_PROXY_BYPASS, 0);
+
+	if (!hSession) return;
+
+	HINTERNET hConnect = WinHttpConnect(hSession, L"n8ntest.squarebbg.com",
+		INTERNET_DEFAULT_HTTPS_PORT, 0);
+
+	if (!hConnect) {
+		WinHttpCloseHandle(hSession);
+		return;
+	}
+
+	CString debugMessage;
+	debugMessage.Format(_T("/webhook/notifyme?msg=%s\n"), message);
+	OutputDebugString(debugMessage);
+
+	HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET",
+		//L"/webhook/notifyme?msg=sendbyvisualstudio",
+		debugMessage,
+		NULL, WINHTTP_NO_REFERER,
+		WINHTTP_DEFAULT_ACCEPT_TYPES,
+		WINHTTP_FLAG_SECURE);
+
+	if (!hRequest) {
+		WinHttpCloseHandle(hConnect);
+		WinHttpCloseHandle(hSession);
+		return;
+	}
+
+	BOOL bResults = WinHttpSendRequest(hRequest,
+		WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+		WINHTTP_NO_REQUEST_DATA, 0,
+		0, 0);
+
+	if (bResults) {
+		bResults = WinHttpReceiveResponse(hRequest, NULL);
+	}
+
+	// Cleanup
+	WinHttpCloseHandle(hRequest);
+	WinHttpCloseHandle(hConnect);
+	WinHttpCloseHandle(hSession);
+}
+
+DWORD WINAPI ThreadProc(LPVOID lpParameter) {
+	ThreadParams* params = (ThreadParams*)lpParameter;
+	SendWebhookNotification(params->msg);
+	delete params;
+	return 0;
+} 
+
+HANDLE StartWebhookThread(const CString& msg) {
+	ThreadParams* params = new ThreadParams;
+	params->msg = msg;
+
+	HANDLE hThread = CreateThread(
+		NULL,                   // default security attributes
+		0,                      // use default stack size  
+		ThreadProc,             // thread function name
+		params,                 // argument to thread function 
+		0,                      // use default creation flags 
+		NULL);                  // returns the thread identifier 
+
+	if (hThread == NULL) {
+		delete params;  // 如果執行緒創建失敗，釋放動態分配的記憶體
+	}
+
+	return hThread;
 }
 
 void TranscribeDlg::onTranscribe()
@@ -386,6 +468,10 @@ void TranscribeDlg::onTranscribe()
 	transcribeArgs.language = languageSelector.selectedLanguage();
 	transcribeArgs.translate = cbTranslate.checked();
 	transcribeArgs.dryrun = cbDryrun.checked();
+ 
+	{ 
+		StartWebhookThread(L"Start to do transcribe xy"); 
+	}
 
 	if (transcribeArgs.dryrun)
 	{
@@ -516,7 +602,12 @@ HRESULT TranscribeDlg::transcribe()
 		OutputDebugString(pathOutput.GetString());
 		OutputDebugString(_T("\n"));
 		 */
-		
+		{
+			CString msgToSent;
+			msgToSent.Format(_T("Start to process %s\n"), inputFilePath);
+			StartWebhookThread(msgToSent);
+		}
+
 		using namespace Whisper;
 		CComPtr<iAudioReader> reader;
 
@@ -582,6 +673,12 @@ HRESULT TranscribeDlg::transcribe()
 			break;
 		default:
 			return E_FAIL;
+		}
+
+		{
+			CString msgToSent;
+			msgToSent.Format(_T("Finish to process %s\n"), inputFilePath);
+			StartWebhookThread(msgToSent);
 		}
 	}
 
