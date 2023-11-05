@@ -31,6 +31,7 @@ public:
 		ON_BUTTON_CLICK( IDC_BACK, onBack )
 		ON_BUTTON_CLICK( IDC_USE_INPUT_FOLDER, onInputFolderCheck )
 		ON_BUTTON_CLICK( IDC_BROWSE_MEDIA, onBrowseMedia )
+		ON_BUTTON_CLICK( IDC_BROWSE_MEDIA2, onBrowseMediaFolder )
 		ON_BUTTON_CLICK( IDC_BROWSE_RESULT, onBrowseOutput )
 		ON_BUTTON_CLICK( IDC_TRANSCRIBE, onTranscribe )
 		ON_BUTTON_CLICK( IDC_CAPTURE, onCapture )
@@ -79,6 +80,7 @@ private:
 
 	CListViewCtrl sourceMediaListView;
 	CEdit sourceMediaPath;
+	CEdit sourceMediaFolderPath;
 	CButton useInputFolder;
 	CEdit transcribeOutputPath;
 	CButton transcribeOutputBrowse;
@@ -91,6 +93,7 @@ private:
 	LRESULT onInputChange( UINT, INT, HWND, BOOL& );
 	void onInputFolderCheck();
 	void onBrowseMedia();
+	void onBrowseMediaFolder();
 	void onBrowseOutput();
 	// Despite the name, the method also handles the "Stop" button
 	void onTranscribe();

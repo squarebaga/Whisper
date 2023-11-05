@@ -40,6 +40,7 @@ LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam
 		{
 			languageSelector, GetDlgItem( IDC_TRANSLATE ),
 			sourceMediaPath, GetDlgItem( IDC_BROWSE_MEDIA ),
+			sourceMediaFolderPath, GetDlgItem( IDC_BROWSE_MEDIA2 ),
 			transcribeOutFormat, useInputFolder,
 			transcribeOutputPath, GetDlgItem( IDC_BROWSE_RESULT ),
 			GetDlgItem( IDCANCEL ),
@@ -173,6 +174,35 @@ void TranscribeDlg::onBrowseMedia()
 	sourceMediaPath.SetWindowText( path );
 	if( useInputFolder.IsWindowEnabled() && useInputFolder.GetCheck() == BST_CHECKED )
 		setOutputPath( path );
+}
+#include <ShlObj.h>
+
+void TranscribeDlg::onBrowseMediaFolder()
+{
+	OutputDebugString(_T("onBrowserMediaFolder\n"));
+	BROWSEINFO bi = { 0 };
+	TCHAR szDisplayName[MAX_PATH];
+	LPITEMIDLIST pidl;
+
+	bi.hwndOwner = m_hWnd;
+	bi.pidlRoot = NULL;
+	bi.pszDisplayName = szDisplayName;
+	bi.lpszTitle = _T("Select a folder");
+	bi.ulFlags = BIF_RETURNONLYFSDIRS;
+
+	pidl = SHBrowseForFolder(&bi);
+	if (pidl != NULL)
+	{
+		if (SHGetPathFromIDList(pidl, szDisplayName))
+		{
+			// szDisplayName now contains the selected folder path
+			// You can use it as needed
+			sourceMediaPath.SetWindowText(szDisplayName);
+			// Call setOutputPath if needed
+			// setOutputPath(szDisplayName);
+		}
+		CoTaskMemFree(pidl);
+	}
 }
 
 static const LPCTSTR outputFilters = L"Text files (*.txt)\0*.txt\0Text with timestamps (*.txt)\0*.txt\0SubRip subtitles (*.srt)\0*.srt\0WebVTT subtitles (*.vtt)\0*.vtt\0\0";
@@ -421,9 +451,44 @@ void TranscribeDlg::onTranscribe()
 	CString message = L"Selected File Path: " + transcribeArgs.pathMedia + _T("\n");
 	OutputDebugString(message.GetString());
 
-	CString folderPath = GetFolderPath(transcribeArgs.pathMedia);
+	BOOL isFolder = TRUE;
 
-	transcribeArgs.inputPathMediaList = ListMP4Files(folderPath);
+	// 檢查是目錄還是檔案
+	{
+		const wchar_t* pathToCheck = transcribeArgs.pathMedia;
+
+		DWORD attributes = GetFileAttributes(pathToCheck);
+
+		if (attributes == INVALID_FILE_ATTRIBUTES) {
+			// 出現錯誤，無法獲取屬性
+			OutputDebugString(L"無法獲取屬性，錯誤碼:");
+			return ;
+		}
+
+		if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
+			// 是目錄
+			OutputDebugString(L"指定的路徑是一個目錄。\n");
+		}
+		else {
+			// 是檔案
+			OutputDebugString(L"指定的路徑是一個檔案。\n");
+			isFolder = FALSE;
+		}
+	}
+
+	if (isFolder)
+	{
+		CString folderPath = GetFolderPath(transcribeArgs.pathMedia); 
+		transcribeArgs.inputPathMediaList = ListMP4Files(transcribeArgs.pathMedia);
+	}
+	else
+	{
+		transcribeArgs.inputPathMediaList.push_back(transcribeArgs.pathMedia);
+	}
+
+	CString strOutput;
+	strOutput.Format(_T("inputPathMediaList中有 %d 個元素。"), transcribeArgs.inputPathMediaList.size());
+	OutputDebugString(strOutput);
 
 #if 1
 	int fileNumber = 1;  // 初始化文件編號

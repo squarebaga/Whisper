@@ -36,6 +36,7 @@
 #define IDC_CONSOLE                     1013
 #define IDC_CAPTURE                     1014
 #define IDC_DEV_REFRESH                 1015
+#define IDC_BROWSE_MEDIA2               1015
 #define IDC_SAVE_TEXT                   1016
 #define IDC_SAVE_APPEND                 1017
 #define IDC_SAVE_TIMESTAMPS             1018
@@ -54,7 +55,7 @@
 #define IDC_USE_INPUT_FOLDER            1029
 #define IDC_RESHAPED_MAT_MUL2           1030
 #define IDC_GPU                         1030
-#define IDC_DRYRUN					1031
+#define IDC_DRYRUN                      1031
 #define IDC_STATIC                      -1
 
 // Next default values for new objects
