@@ -38,7 +38,7 @@ LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam
 
 	pendingState.initialize(
 		{
-			languageSelector, GetDlgItem( IDC_TRANSLATE ),
+			languageSelector, GetDlgItem( IDC_TRANSLATE ), GetDlgItem( IDC_DRYRUN ),
 			sourceMediaPath, GetDlgItem( IDC_BROWSE_MEDIA ),
 			sourceMediaFolderPath, GetDlgItem( IDC_BROWSE_MEDIA2 ),
 			transcribeOutFormat, useInputFolder,
@@ -296,6 +296,7 @@ CString GetFolderPath(const CString& filePath)
 #include <vector>
 #include <tchar.h>
 
+/*
 std::vector<CString> ListMP4Files(const CString& folderPath)
 {
 	std::vector<CString> mp4Files;
@@ -304,7 +305,7 @@ std::vector<CString> ListMP4Files(const CString& folderPath)
 
 	if (hFind == INVALID_HANDLE_VALUE)
 	{
-		return mp4Files; // 返回空列表
+		return mp4Files; // Return empty list
 	}
 	else
 	{
@@ -318,19 +319,54 @@ std::vector<CString> ListMP4Files(const CString& folderPath)
 
 	return mp4Files;
 }
+*/
+
+std::vector<CString> ListMediaFiles(const CString& folderPath)
+{
+	std::vector<CString> mediaFiles;
+	WIN32_FIND_DATA findFileData;
+	HANDLE hFind = INVALID_HANDLE_VALUE;
+
+	// Define what file ext we want
+	const TCHAR* extensions[] = { _T("*.mp4"), _T("*.mp3"), _T("*.mkv"), _T("*.ts") };
+	const size_t extCount = sizeof(extensions) / sizeof(extensions[0]);
+
+	// Search for each file ext
+	for (size_t i = 0; i < extCount; ++i)
+	{
+		CString searchPath = folderPath + _T("\\") + extensions[i];
+		hFind = FindFirstFile(searchPath.GetString(), &findFileData);
+
+		if (hFind != INVALID_HANDLE_VALUE)
+		{
+			do
+			{
+				if (!(findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+				{
+					// Only cares about file not folder
+					const CString filePath = folderPath + _T("\\") + findFileData.cFileName;
+					mediaFiles.push_back(filePath);
+				}
+			} while (FindNextFile(hFind, &findFileData) != 0);
+			FindClose(hFind);
+		}
+	}
+
+	return mediaFiles;
+}
 
 CString ChangeFileExtensionToSrt(const CString& filePath)
 {
 	int dotIndex = filePath.ReverseFind('.');
-	if (dotIndex != -1)  // 如果找到了點（.）符號
+	if (dotIndex != -1)  // Found "."
 	{
-		CString newPath = filePath.Left(dotIndex);  // 獲取不包含副檔名的路徑部分
-		newPath += _T(".srt");  // 在後面加上新的副檔名
+		CString newPath = filePath.Left(dotIndex);  // get Main filename
+		newPath += _T(".srt");  // Add "srt" at the end
 		return newPath;
 	}
-	else  // 如果沒有找到點（.）符號
+	else  // No "."
 	{
-		return filePath + _T(".srt");  // 直接在原來的路徑後面加上新的副檔名
+		return filePath + _T(".srt");  // Add ".srt" at the end
 	}
 }
 
@@ -416,7 +452,7 @@ HANDLE StartWebhookThread(const CString& msg) {
 		NULL);                  // returns the thread identifier 
 
 	if (hThread == NULL) {
-		delete params;  // 如果執行緒創建失敗，釋放動態分配的記憶體
+		delete params;
 	}
 
 	return hThread;
@@ -453,25 +489,22 @@ void TranscribeDlg::onTranscribe()
 
 	BOOL isFolder = TRUE;
 
-	// 檢查是目錄還是檔案
+	// Folder or File?
 	{
 		const wchar_t* pathToCheck = transcribeArgs.pathMedia;
 
 		DWORD attributes = GetFileAttributes(pathToCheck);
 
 		if (attributes == INVALID_FILE_ATTRIBUTES) {
-			// 出現錯誤，無法獲取屬性
-			OutputDebugString(L"無法獲取屬性，錯誤碼:");
+			OutputDebugString(L"Unable to get attribute, Error code:");
 			return ;
 		}
 
 		if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
-			// 是目錄
-			OutputDebugString(L"指定的路徑是一個目錄。\n");
+			OutputDebugString(L"It is a folder\n");
 		}
 		else {
-			// 是檔案
-			OutputDebugString(L"指定的路徑是一個檔案。\n");
+			OutputDebugString(L"It is a file\n");
 			isFolder = FALSE;
 		}
 	}
@@ -479,7 +512,9 @@ void TranscribeDlg::onTranscribe()
 	if (isFolder)
 	{
 		CString folderPath = GetFolderPath(transcribeArgs.pathMedia); 
-		transcribeArgs.inputPathMediaList = ListMP4Files(transcribeArgs.pathMedia);
+		//transcribeArgs.inputPathMediaList = ListMP4Files(transcribeArgs.pathMedia);
+		transcribeArgs.inputPathMediaList = ListMediaFiles(transcribeArgs.pathMedia);
+		
 	}
 	else
 	{
@@ -487,31 +522,29 @@ void TranscribeDlg::onTranscribe()
 	}
 
 	CString strOutput;
-	strOutput.Format(_T("inputPathMediaList中有 %d 個元素。"), transcribeArgs.inputPathMediaList.size());
+	strOutput.Format(_T("We have %d files in inputPathMediaList"), transcribeArgs.inputPathMediaList.size());
 	OutputDebugString(strOutput);
 
 #if 1
-	int fileNumber = 1;  // 初始化文件編號
+	int fileNumber = 1;
 
 	auto it = transcribeArgs.inputPathMediaList.begin();
 	while (it != transcribeArgs.inputPathMediaList.end()) {
 		CString inputFilePath = *it;
-		CString pathOutput = ChangeFileExtensionToSrt(inputFilePath);  // 假設這是您的函數
+		CString pathOutput = ChangeFileExtensionToSrt(inputFilePath);
 
-		// 檢查文件是否已存在
+		// Check if file exists
 		if (PathFileExists(pathOutput)) {
 			OutputDebugString(_T("file existed\n"));
-			// 如果文件已存在，從vector中移除對應的inputFilePath
+			// IF exists, remove the path from vector
 			it = transcribeArgs.inputPathMediaList.erase(it);
 		}
-		else {
-
-			// 輸出debug信息
+		else { 
 			CString debugMessage;
 			debugMessage.Format(_T("File #%d\ninput file\n%s\noutput file\n%s\n"), fileNumber, inputFilePath.GetString(), pathOutput.GetString());
 			OutputDebugString(debugMessage);
 
-			// 更新文件編號並移動到下一個元素
+			// Update file number and go to next file
 			fileNumber++;
 			++it;
 		}
@@ -534,13 +567,9 @@ void TranscribeDlg::onTranscribe()
 	transcribeArgs.translate = cbTranslate.checked();
 	transcribeArgs.dryrun = cbDryrun.checked();
  
-	{ 
-		StartWebhookThread(L"Start to do transcribe xy"); 
-	}
-
 	if (transcribeArgs.dryrun)
 	{
-		OutputDebugString(_T("dryrun and exit\n"));
+		OutputDebugString(_T("Dryrun Mode\n"));
 		return;
 	}
 
@@ -655,23 +684,10 @@ HRESULT TranscribeDlg::transcribe()
 	
 	for (const auto& inputFilePath : transcribeArgs.inputPathMediaList)
 	{
-		CString pathOutput = ChangeFileExtensionToSrt(inputFilePath);
-
-		/*
-		OutputDebugString(_T(__FUNCTION__));
-		OutputDebugString(_T("input file\n"));
-		OutputDebugString(inputFilePath.GetString());
-		OutputDebugString(_T("\n"));
-
-		OutputDebugString(_T("output file\n"));
-		OutputDebugString(pathOutput.GetString());
-		OutputDebugString(_T("\n"));
-		 */
-		{
-			CString msgToSent;
-			msgToSent.Format(_T("Start to process %s\n"), inputFilePath);
-			StartWebhookThread(msgToSent);
-		}
+		CString pathOutput = ChangeFileExtensionToSrt(inputFilePath); 
+		CString msgToSent;
+		msgToSent.Format(_T("Start to process filename: %s\n"), inputFilePath);
+		StartWebhookThread(msgToSent);
 
 		using namespace Whisper;
 		CComPtr<iAudioReader> reader;
@@ -740,11 +756,9 @@ HRESULT TranscribeDlg::transcribe()
 			return E_FAIL;
 		}
 
-		{
-			CString msgToSent;
-			msgToSent.Format(_T("Finish to process %s\n"), inputFilePath);
-			StartWebhookThread(msgToSent);
-		}
+		//CString msgToSent;
+		msgToSent.Format(_T("Finish to process %s\n"), inputFilePath);
+		StartWebhookThread(msgToSent);
 	}
 
 	return S_OK;
